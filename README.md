@@ -1,4 +1,4 @@
-# Quantum Architecture Search Neural Evolutionary Bayesian Optimization
+# Quantum Architecture Search with Neural Evolutionary Bayesian Optimization
 
 My research on using evolutionary bayesian optimization with a NN as a surrogate model for quantum architecture search, such as designing static quantum circuits or autoML on hybrid quantum variational algos
 
