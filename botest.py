@@ -12,7 +12,7 @@ from sklearn import datasets
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 #import botorch.models.model.Model as bo_base_model
-from QASBO.BO.bo import ExampleNEBO
+from QASNEBO.BO.bo import ExampleNEBO
 
 architecture = [
     [128, "selu"],
@@ -23,8 +23,6 @@ architecture = [
 ]
 
 bo_test = ExampleNEBO(architecture, nn_dropout_p=0.2)
-
-
 
 
 

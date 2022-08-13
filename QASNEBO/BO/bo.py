@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, random_split, TensorDataset
 from sklearn import datasets
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
-from QASBO.models.neural_predictors import Neural_Predictor
+from QASNEBO.models.neural_predictors import Neural_Predictor
 from torch import Tensor
 from torch.distributions.normal import Normal
 
