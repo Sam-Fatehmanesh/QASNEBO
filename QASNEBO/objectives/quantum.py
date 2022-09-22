@@ -130,28 +130,24 @@ class mnistVQA(tq.QuantumModule):
 
 
         #Classical Stack
-        self.preCstack = nn.Sequential(
+        self.preQstack = nn.Sequential(
             nn.ReflectionPad2d(2),
-            #nn.AvgPool2d(5), # output dim 4x4
-            nn.Flatten(), # output dim 16
-            #nn.AvgPool1d(kernel_size)
+            nn.Flatten(),
         )
-        self.postCstack = nn.Sequential(
+        self.postQstack = nn.Sequential(
             nn.Linear(self.n_wires, len(mnist_index)),
             nn.LogSoftmax(dim= 1)
         )
 
     def forward(self, x):
-        #print(x.size())
-        # var x 28x28 
-        x = self.preCstack(x)
-        #print(x.size())
+                
+        x = self.preQstack(x)
         self.encoder(self.q_device, x)
     
         self.q_layer(self.q_device)
         x = self.measure(self.q_device)
 
-        x = self.postCstack(x)
+        x = self.postQstack(x)
 
         return x
 
