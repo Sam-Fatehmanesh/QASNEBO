@@ -1,8 +1,11 @@
-from math import factorial
 import torch
-from torch import nn, Tensor
+from torch import nn
+import torch.nn.functional as F
 import torchquantum as tq
+from torchquantum.datasets import MNIST
+import torch.optim as optim
 
+#mnist_index = [1,3,8]
 
 def gen_gate(gate, wires):
     if gate == "rx":
@@ -15,19 +18,17 @@ def gen_gate(gate, wires):
         return tq.PhaseShift(has_params=True, trainable=True, wires=wires)
     elif gate == "cnot":
         return tq.CNOT(wires=wires)
+    elif gate == "i":
+        return tq.I(wires=wires)
     else:
         raise Exception("Desired gate not part of gate set in use")
 
 def tensortogate(x, n_wires):
-    n_gatetype_one = 4 # number of single wire gates
-    n_gatetypes = (n_wires * n_gatetype_one)
-
     index = (x == 1).nonzero(as_tuple=True)[0].item()
     index += 1
 
     wire = None
     gate = ""
-
     if index <= n_wires:
         wire = index - 1
         gate = "rx"
@@ -46,29 +47,167 @@ def tensortogate(x, n_wires):
         control_wire = control_index - (n_wires * 4) - 1
         gate = "cnot"
         wire = [wire , control_wire]
+    elif index <= n_wires * 6:
+        wire = index - (n_wires * 5) - 1
+        gate = "i"
     else:
         raise Exception("Error in gate tensor encoding")
 
     return [gate, wire]
 
 def tensortocircuit(x, n_wires):
-
-    n_gatetypes = 5 # number of single wire gates
+    n_gatetypes = 6 # number of single wire gates
     n_gatecombs = (n_wires * n_gatetypes)
 
     circuit_encodings = []
 
     for circuit_tensor in x:
+
         circuit_encoding = []
         encoding_size = list(circuit_tensor.size())[0]
-        # print(int(encoding_size / n_wires))
+
         for i in range(int(encoding_size / n_gatecombs) ):
             start = i * n_gatecombs
             end = (n_gatecombs * (i+1))
             circuit_encoding.append(tensortogate(circuit_tensor[start:end], n_wires))
         
         circuit_encodings.append(circuit_encoding)
-    return circuit_encodings
+    #print(circuit_encodings)
+    return circuit_encodings    
+
+def gen_MNISTdataflow(mnist_index):
+    dataset = MNIST(
+    root='./mnist_data',
+    train_valid_split_ratio=[0.9, 0.1],
+    digits_of_interest=mnist_index,
+    n_test_samples=75,
+    fashion=True,
+    )
+    dataflow = dict()
+
+    for split in dataset:
+        sampler = torch.utils.data.RandomSampler(dataset[split])
+        dataflow[split] = torch.utils.data.DataLoader(
+            dataset[split],
+            batch_size=256,
+            sampler=sampler,
+            num_workers=1,
+            pin_memory=True,
+            multiprocessing_context='fork'
+            )
+
+    return dataflow
+
+class QLayer(tq.QuantumModule):
+    def __init__(self, n_wires, QArchitecture):
+        super().__init__()
+
+        self.n_wires = n_wires
+
+        self.gates = tq.QuantumModuleList()
+        for i in QArchitecture:
+            self.gates.append(gen_gate(gate=i[0], wires=i[1]))
+
+    
+    def forward(self, q_device: tq.QuantumDevice):
+        self.q_device = q_device
+        for gate in self.gates:
+            gate(self.q_device)
+
+class mnistVQA(tq.QuantumModule):
+    def __init__(self, QArchitecture, n_wires, mnist_index):
+        super().__init__()
+        self.n_wires = n_wires
+        self.q_device = tq.QuantumDevice(n_wires=self.n_wires)
+    
+        self.encoder = tq.AmplitudeEncoder()
+
+        
+
+        self.q_layer = QLayer(self.n_wires, QArchitecture)
+        self.measure = tq.MeasureAll(tq.PauliZ)
 
 
 
+        #Classical Stack
+        self.preCstack = nn.Sequential(
+            nn.ReflectionPad2d(2),
+            #nn.AvgPool2d(5), # output dim 4x4
+            nn.Flatten(), # output dim 16
+            #nn.AvgPool1d(kernel_size)
+        )
+        self.postCstack = nn.Sequential(
+            nn.Linear(self.n_wires, len(mnist_index)),
+            nn.LogSoftmax(dim= 1)
+        )
+
+    def forward(self, x):
+        #print(x.size())
+        # var x 28x28 
+        x = self.preCstack(x)
+        #print(x.size())
+        self.encoder(self.q_device, x)
+    
+        self.q_layer(self.q_device)
+        x = self.measure(self.q_device)
+
+        x = self.postCstack(x)
+
+        return x
+
+def train_batch(dataflow, model, device, optimizer):
+    for feed_dict in dataflow['train']:
+        inputs = feed_dict['image'].to(device)
+        targets = feed_dict['digit'].to(device)
+
+        outputs = model(inputs)
+        loss = F.nll_loss(outputs, targets)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        # print(f"loss: {loss.item()}", end='\r')
+
+def valid_test(dataflow, split, model, device):
+    target_all = []
+    output_all = []
+    with torch.no_grad():
+        for feed_dict in dataflow[split]:
+            inputs = feed_dict['image'].to(device)
+            targets = feed_dict['digit'].to(device)
+
+            outputs = model(inputs)
+
+            target_all.append(targets)
+            output_all.append(outputs)
+        target_all = torch.cat(target_all, dim=0)
+        output_all = torch.cat(output_all, dim=0)
+
+    _, indices = output_all.topk(1, dim=1)
+    masks = indices.eq(target_all.view(-1, 1).expand_as(indices))
+    size = target_all.shape[0]
+    corrects = masks.sum().item()
+    accuracy = corrects / size
+    loss = F.nll_loss(output_all, target_all).item()
+
+    # print(f"{split} set accuracy: {accuracy}")
+    # print(f"{split} set loss: {loss}")
+
+    return accuracy
+
+def train(dataflow, model, device, epochs=5):
+    #Device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    optimizer = optim.Adam(model.parameters(), lr=5e-3, weight_decay=1e-4)
+    #scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs)
+
+    #print(epochs)
+    for epoch in range(1, epochs + 1):
+        # train
+        # print(f"Epoch {epoch}:")
+        train_batch(dataflow, model, device, optimizer)
+        # print(optimizer.param_groups[0]['lr'])
+
+        # valid
+        #valid_test(dataflow, 'valid', model, device)
+        #scheduler.step()
+    
+    return valid_test(dataflow, 'test', model, device)

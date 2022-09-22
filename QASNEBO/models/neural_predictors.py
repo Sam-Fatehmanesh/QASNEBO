@@ -19,7 +19,7 @@ def init_weights(m):
     if isinstance(m, nn.Linear):
         torch.nn.init.calculate_gain('linear', m.weight)
 
-# functions to apply to nn.Sequencial in order to turn on/off dropout for MCD
+# functions to apply to nn.Sequential in order to turn on/off dropout for MCD
 def activate_dropout(m):
     if isinstance(m, nn.Dropout):
         m.train(True)
@@ -29,10 +29,10 @@ def deactivate_dropout(m):
         m.train(False)
 
 # model definition
-class Neural_Predictor(pl.LightningModule):
+class NeuralPredictor(pl.LightningModule):
     #_num_outputs = 1
     def __init__(self, n_in, n_out, architecture,  dropout_p = 0.0, log_torchmetric = False):
-        super(Neural_Predictor, self).__init__()
+        super(NeuralPredictor, self).__init__()
 
         # metric logging
         self.accuracy = None
@@ -50,29 +50,34 @@ class Neural_Predictor(pl.LightningModule):
 
         # init the main model stack
         self.stack = nn.Sequential()
+
+        if architecture[len(architecture)-1][0] != 1:
+            raise Exception("last layer width must be equal to one")
+
+        pre_in = n_in
+
+        print("Neural Network Architecture")
         # dynamic model construction
         self.stack.append(nn.AlphaDropout(dropout_p))
         for i, neural_layer_info in enumerate(architecture):
+            print(neural_layer_info)
             neural_width = neural_layer_info[0]
+            #next_neural_width = architecture[i+1][0]
             act_func = actfunc_from_str(neural_layer_info[1])
 
-            if i == 0:
-                self.stack.append(nn.Linear(n_in, neural_width))
-                self.stack.append(act_func)
+            self.stack.append(nn.Linear(pre_in, neural_width))
+            self.stack.append(act_func)
+            if i < len(architecture) - 1:
                 self.stack.append(nn.AlphaDropout(dropout_p))
-
-            else:
-                self.stack.append(nn.Linear(neural_width, neural_width))
-                self.stack.append(act_func)
-                self.stack.append(nn.AlphaDropout(dropout_p))
+            pre_in = neural_width
                     
-        self.stack.append(nn.Linear(neural_width, n_out))
-
+        # self.stack.append(nn.Linear(neural_width, n_out))
+        # self.stack.append(nn.Sigmoid())
         # init weights
         self.stack.apply(init_weights)
         
     def forward(self, x):
-        return self.stack(x)
+        return self.stack(x.type(torch.float))
 
     def forward_d(self, x, iterations):
         # activates dropout
