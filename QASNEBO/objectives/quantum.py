@@ -72,7 +72,6 @@ def tensortocircuit(x, n_wires):
             circuit_encoding.append(tensortogate(circuit_tensor[start:end], n_wires))
         
         circuit_encodings.append(circuit_encoding)
-    #print(circuit_encodings)
     return circuit_encodings    
 
 def gen_MNISTdataflow(mnist_index):
@@ -140,7 +139,7 @@ class mnistVQA(tq.QuantumModule):
         )
 
     def forward(self, x):
-                
+
         x = self.preQstack(x)
         self.encoder(self.q_device, x)
     
@@ -161,7 +160,6 @@ def train_batch(dataflow, model, device, optimizer):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        # print(f"loss: {loss.item()}", end='\r')
 
 def valid_test(dataflow, split, model, device):
     target_all = []
@@ -185,25 +183,14 @@ def valid_test(dataflow, split, model, device):
     accuracy = corrects / size
     loss = F.nll_loss(output_all, target_all).item()
 
-    # print(f"{split} set accuracy: {accuracy}")
-    # print(f"{split} set loss: {loss}")
 
     return accuracy
 
 def train(dataflow, model, device, epochs=5):
-    #Device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     optimizer = optim.Adam(model.parameters(), lr=5e-3, weight_decay=1e-4)
-    #scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs)
 
-    #print(epochs)
     for epoch in range(1, epochs + 1):
         # train
-        # print(f"Epoch {epoch}:")
         train_batch(dataflow, model, device, optimizer)
-        # print(optimizer.param_groups[0]['lr'])
-
-        # valid
-        #valid_test(dataflow, 'valid', model, device)
-        #scheduler.step()
     
     return valid_test(dataflow, 'test', model, device)

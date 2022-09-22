@@ -67,7 +67,7 @@ class nebo(BayesOpt):
         enable_progress_bar = verbose)
 
         # training of the neural network predictor
-        #trainer.fit(self.model, train_dataloaders = train_dl)
+        trainer.fit(self.model, train_dataloaders = train_dl)
     
     def surrogate_model_inference(self, x_pred, mciterations):
         # returns model inference output in the form of mean, variances
